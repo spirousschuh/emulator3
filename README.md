@@ -30,7 +30,7 @@ Log in with user: **airflow** and password: **airflow**.
 
 ## Configuration variables in the UI
 
-Update Airflow variables with the tab *Admin/Variables* and select *config_test.json* file to import the variables. 
+Update Airflow variables with the tab *Admin/Variables* and select *dags/config_test.json* file to import the variables. 
 
 Change the *host_path* variable, with your local absolute path to */dags* directory: "C:/Users/../some_directory/dags"
 (use / even on Windows)
