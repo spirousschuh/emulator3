@@ -1,5 +1,7 @@
 import datetime as dt
 import json
+import os.path
+
 from airflow.models.dag import DAG
 from airflow.models import Variable
 from airflow.providers.docker.operators.docker import DockerOperator
@@ -13,7 +15,8 @@ try:
     host_path = Variable.get("host_path", deserialize_json=True)
 except:
     print("Host path has not been addded to the airflow UI variables or it has not been done correctly!")
-    # host_path = "/home/ml/Git-CONICET/Emulator/emulator3/dags"
+    host_path = os.path.dirname(__file__)
+    print(host_path)
 
 remote_path = "/opt/airflow/dags"
 

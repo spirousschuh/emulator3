@@ -14,6 +14,7 @@ try:
     host_path = Variable.get("host_path", deserialize_json=True)
 except:
     print("Host path has not been addded to the airflow UI variables or it has not been done correctly!")
+    host_path = os.path.dirname(__file__)
 
 
 remote_path = "/opt/airflow/dags"
