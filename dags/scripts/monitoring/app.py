@@ -1,3 +1,9 @@
+"""
+Monitoring Application Module.
+
+Web application for real-time monitoring of bioreactor experiments.
+"""
+
 import datetime
 import pytz
 import sqlalchemy
@@ -70,7 +76,7 @@ def return_dataframes(data, runID: int, expIDs: int):
 
 def build_engine():
     engine = sqlalchemy.create_engine(
-        'mysql+mysqlconnector://dbuser:dbpassword123@mysql:3306/ilabdb',
+        "mysql+mysqlconnector://dbuser:dbpassword123@mysql:3306/ilabdb",
         echo=False,
     )
     return engine
@@ -96,13 +102,16 @@ def add_info_cards():
     col4.text(info[3])
 
     col5.subheader("Experiment elapsed time")
-    tz = pytz.timezone('Europe/Amsterdam')
+    tz = pytz.timezone("Europe/Amsterdam")
     print(datetime.datetime.now(tz).timestamp(), info[0].replace(tzinfo=tz).timestamp())
-    elapsed_time_s = (datetime.datetime.now(tz) - info[0].replace(tzinfo=tz)).total_seconds()
+    elapsed_time_s = (
+        datetime.datetime.now(tz) - info[0].replace(tzinfo=tz)
+    ).total_seconds()
     print(elapsed_time_s)
     hours, remainder = divmod(elapsed_time_s, 3600)
     minutes, seconds = divmod(remainder, 60)
-    col5.text('{:02}h {:02}min {:02}s'.format(int(hours), int(minutes), int(seconds)))
+    col5.text("{:02}h {:02}min {:02}s".format(int(hours), int(minutes), int(seconds)))
+
 
 if __name__ == "__main__":
 
@@ -140,7 +149,9 @@ if __name__ == "__main__":
 
     print(variables_in_run)
 
-    plot_variables = st.multiselect("Plot variables", variables_in_run, variables_in_run)
+    plot_variables = st.multiselect(
+        "Plot variables", variables_in_run, variables_in_run
+    )
 
     tab1, tab2 = st.tabs(["iLab streaming", "Data"])
 
@@ -182,7 +193,7 @@ if __name__ == "__main__":
                 "Feed setpoints",
                 "Total yield max(X)/max(cum_S)",
                 "Cumulative yields biomass/glucose",
-                "Cumulative yields product/glucose"
+                "Cumulative yields product/glucose",
             ]
         )
 
@@ -219,10 +230,14 @@ if __name__ == "__main__":
                 for expid in expids:
                     feed_df = get_feed_setpoints(
                         engine,
-                        id_df.loc[id_df["experiment_id"] == expid]["profile_id"].values[0],
+                        id_df.loc[id_df["experiment_id"] == expid]["profile_id"].values[
+                            0
+                        ],
                     )
-                    BR = id_df.loc[id_df.experiment_id == expid]["profile_name"].values[0]
-                    summary.loc[BR[0], BR[1]] = np.max(feed_df['setpoint_value'])
+                    BR = id_df.loc[id_df.experiment_id == expid]["profile_name"].values[
+                        0
+                    ]
+                    summary.loc[BR[0], BR[1]] = np.max(feed_df["setpoint_value"])
 
                     fig = px.bar(
                         feed_df,
@@ -232,10 +247,9 @@ if __name__ == "__main__":
                     )
                     st.plotly_chart(fig)
             with col2:
-                fig = px.imshow(summary,
-                                text_auto=True,
-                                labels=dict(x="2mag column", y="2mag row")
-                                )
+                fig = px.imshow(
+                    summary, text_auto=True, labels=dict(x="2mag column", y="2mag row")
+                )
                 st.plotly_chart(fig)
 
         with summary3:
@@ -251,9 +265,7 @@ if __name__ == "__main__":
                         ) / max(
                             data_dict[expid]["Cumulated_feed_volume_glucose"].dropna()
                         )
-                    fig = px.imshow(summary,
-                                    text_auto=True
-                                    )
+                    fig = px.imshow(summary, text_auto=True)
                     st.plotly_chart(fig)
                 except Exception as e:
                     st.text(f"{e} not in selected dataset")
@@ -265,14 +277,16 @@ if __name__ == "__main__":
             with col1:
                 try:
                     for expid in expids:
-                        feed = 5e-2 + 200e-6*(data_dict[expid]["Cumulated_feed_volume_glucose"].interpolate(
-                            method="linear"
-                        ))
+                        feed = 5e-2 + 200e-6 * (
+                            data_dict[expid][
+                                "Cumulated_feed_volume_glucose"
+                            ].interpolate(method="linear")
+                        )
                         BR = id_df.loc[id_df.experiment_id == expid][
                             "profile_name"
                         ].values[0]
                         summary.loc[BR[0], BR[1]] = np.nansum(
-                            (data_dict[expid]["Biomass"].dropna()*10**-2)/feed
+                            (data_dict[expid]["Biomass"].dropna() * 10**-2) / feed
                         )
                     fig = px.imshow(summary, text_auto=True)
                     st.plotly_chart(fig)
@@ -284,21 +298,22 @@ if __name__ == "__main__":
                 try:
                     yield_dict = dict()
                     for expid in expids:
-                        feed = (5e-2 + 200e-6*(data_dict[expid]["Cumulated_feed_volume_glucose"].interpolate(
-                                method="linear"
-                            ))
+                        feed = 5e-2 + 200e-6 * (
+                            data_dict[expid][
+                                "Cumulated_feed_volume_glucose"
+                            ].interpolate(method="linear")
                         )
                         yield_dict[expid] = pd.DataFrame(
-                            data_dict[expid]["Biomass"].dropna()*10**-2/feed,
-                            columns=['yield']
+                            data_dict[expid]["Biomass"].dropna() * 10**-2 / feed,
+                            columns=["yield"],
                         )
 
                     fig = subplot_dict(
                         exp_data=yield_dict,
-                        plot_states={'yield': 'Biomass / Total glucose'},
+                        plot_states={"yield": "Biomass / Total glucose"},
                         return_fig=True,
                         show=False,
-                        )
+                    )
                     st.plotly_chart(fig)
                 except KeyError as e:
                     st.text(f"{e} not in selected dataset")
