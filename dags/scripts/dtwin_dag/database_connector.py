@@ -16,11 +16,20 @@ import sys
 
 
 def get_connection_url():
-    host = "mysql"  # "host.docker.internal"
-    port = "3306"
-    user = "dbuser"
-    password = "dbpassword123"
-    database = "ilabdb"
+    """
+    Generate database connection URL string.
+    
+    Constructs the MySQL connection URL for the iLab database using
+    hardcoded credentials and connection parameters.
+    
+    Returns:
+        str: SQLAlchemy connection URL in format mysql+mysqlconnector://user:pass@host:port/db
+    """
+    host = "mysql"  # Database host (use "host.docker.internal" for Docker)
+    port = "3306"  # MySQL default port
+    user = "dbuser"  # Database username
+    password = "dbpassword123"  # Database password
+    database = "ilabdb"  # Database name
 
     return f"mysql+mysqlconnector://{user}:{password}@{host}:{port}/{database}"
 
@@ -41,13 +50,18 @@ run_id = 623
 
 def save_start_time():
     """
-    Saves the start time of the simulation
+    Save the simulation start time to the database.
+    
+    Reads the absolute start time from DTWIN_design.json and updates
+    the runs table with this timestamp. Converts Unix timestamp to
+    Amsterdam timezone.
     """
 
-    # get time start absolute from DTWIN_design
+    # Read time_start_absolute from design file
     with open("DTWIN_design.json", "r") as file:
         design_file = json.load(file)
 
+    # Build UPDATE query with formatted timestamp
     sql_query = " UPDATE runs SET start_time = '{}' WHERE run_id = '{}' ".format(
         datetime.datetime.fromtimestamp(
             design_file["time_start_absolute"], tz=local_tz
@@ -55,6 +69,7 @@ def save_start_time():
         run_id,
     )
 
+    # Execute the update
     conn = engine.connect()
     conn.execute(sqlalchemy.text(sql_query))
     conn.close()
@@ -62,10 +77,21 @@ def save_start_time():
 
 def get_measuring_setup_id(conn, variable_type):
     """
-    Get variable_setup_id from a variable_type parameter
+    Get measuring setup ID for a variable type.
+    
+    Looks up the measuring_setup_id by joining measuring_setup and
+    variable_types tables. This ID links measurements to their sensor
+    configuration.
+    
+    Args:
+        conn: Database connection object.
+        variable_type (str): Canonical name of the variable (e.g., 'OD600', 'DOT').
+    
+    Returns:
+        int: The measuring_setup_id for this variable type and run.
     """
 
-    # get measuring setup id (from variable type)
+    # Query measuring setup ID by variable type canonical name
     sql_query = f"""
         SELECT measuring_setup_id FROM measuring_setup 
         WHERE run_id = '{run_id}' AND variable_type_id = 
@@ -78,10 +104,19 @@ def get_measuring_setup_id(conn, variable_type):
 
 def delete_measuring_setup_id_data(conn, experiment_id, measuring_setup_id):
     """
-    Delete all the measurements for a particular measuring_setup_id and experiment_id
+    Delete dummy measurements for an experiment and sensor.
+    
+    Removes all measurements marked as 'dummy' for a specific experiment
+    and measuring setup. Used to clean up placeholder data before inserting
+    real measurements.
+    
+    Args:
+        conn: Database connection object.
+        experiment_id (int): The experiment identifier.
+        measuring_setup_id (int): The measuring setup identifier.
     """
 
-    # delete all the measurements from an specific measuring setup id and exp_id
+    # Delete dummy measurements for this experiment and sensor
     sql_query = f"""
         DELETE FROM measurements_experiments WHERE measuring_setup_id = '{measuring_setup_id}' 
                     AND experiment_id = '{experiment_id}' AND label= 'dummy';
@@ -94,10 +129,21 @@ def send_data_to_ilab(
     conn, experiment_id, measuring_setup_id, start_time, measurements
 ):
     """
-    Saves measurements in iLab DB
+    Insert measurements into the iLab database.
+    
+    Bulk inserts measurement records for a specific experiment and sensor.
+    Constructs a single SQL INSERT statement with multiple value rows for
+    efficiency.
+    
+    Args:
+        conn: Database connection object.
+        experiment_id (int): The experiment identifier.
+        measuring_setup_id (int): The measuring setup identifier.
+        start_time (datetime): The experiment start time for timestamp calculation.
+        measurements (dict): Dictionary with 'time' and 'value' arrays.
     """
 
-    # concatenates all the values for an specific exp_id and measurement, to insert in one query
+    # Build bulk INSERT query with all measurement values
     query_all = ""
     for measurement_time, value in measurements:
         timestamp = (
@@ -116,10 +162,18 @@ def send_data_to_ilab(
 
 def save_measurements():
     """
-    Save all the measurements for all the MBRs. Deletes the current measurements and saves the new ones.
+    Save all measurements for all mini bioreactors (MBRs).
+    
+    Reads measurements from db_dtwin.json and writes them to the database.
+    Deletes existing dummy measurements before inserting new ones to avoid
+    duplicates. Processes all measurement types for all experiments in a
+    single transaction.
+    
+    The function handles multiple measurement types including: OD600, DOT,
+    metabolites, feeds, and process parameters.
     """
 
-    # get start time from design file
+    # Load experiment start time from design file
     with open("DTWIN_design.json", "r") as file:
         design_file = json.load(file)
         file.close()
@@ -128,12 +182,13 @@ def save_measurements():
         design_file["time_start_absolute"], tz=local_tz
     )
 
-    # get all the measurements from file
+    # Load all measurements from state file
     with open("db_dtwin.json", "r") as file:
         mbrs_measurements = json.load(file)
         file.close()
 
-    # TODO: check measurement harcoded array
+    # List of all measurement types to process
+    # TODO: Make this configurable instead of hardcoded
     measurement_types = [
         "OD600",
         "DOT",
@@ -158,26 +213,29 @@ def save_measurements():
 
     conn = engine.connect()
 
-    # set isolation level to SERIALIZABLE
+    # Set isolation level to SERIALIZABLE
     # conn.execution_options(isolation_level='SERIALIZABLE')
 
-    # begin a transaction
+    # Execute all database operations in a single transaction
     with conn.begin():
         for exp_id in mbrs_measurements:
 
-            # TODO: get all measurement_setup_id in one query
+            # Process each measurement type for this experiment
+            # TODO: Optimize by fetching all measurement_setup_ids in one query
             for measurement in measurement_types:
                 try:
+                    # Get measurements for this type
                     measurement_list = mbrs_measurements[exp_id][
                         "measurements_aggregated"
                     ][measurement]
-                    # get measuring_setup_id once for measurement canonical name
+                    
+                    # Get measuring_setup_id for this measurement type
                     measuring_setup_id = get_measuring_setup_id(conn, measurement)
 
-                    # delete all values from type of measurement
+                    # Delete old dummy values for this measurement type
                     delete_measuring_setup_id_data(conn, exp_id, measuring_setup_id)
 
-                    # save all the data
+                    # Insert new measurement data
                     send_data_to_ilab(
                         conn,
                         exp_id,
@@ -198,30 +256,39 @@ def save_measurements():
 
 def get_feeds(runID):
     """
-    Get feeds profile for all the MBRs
+    Retrieve feed setpoint profiles for all mini bioreactors (MBRs).
+    
+    Reads setpoints from database and merges them into the measurements
+    dictionary. Updates db_dtwin.json with feed setpoint data for each
+    experiment.
+    
+    Args:
+        runID (int): The run identifier to query.
     """
 
-    # get all the measurements from file
+    # Load current measurements file
     with open("db_dtwin.json", "r") as file:
         mbrs_measurements = json.load(file)
         file.close()
 
-    # get setpoints
+    # Query all setpoints from database
     setpoints_groups_df = get_setpoints(runID, engine)
 
-    # iterate setpoints groups
+    # Process each setpoint group (by experiment and variable)
     for (exp_id, variable), group in setpoints_groups_df:
-        # rename column by variable type
+        # Rename columns to match expected format
         group.rename(
             columns={"setpoint_value": variable, "cultivation_age": "setpoint_time"},
             inplace=True,
         )
 
-        # Reset index: to start from 0 for each measurement count of the original dataframe
+        # Store setpoints in measurements dictionary
+        # Reset index to start from 0 for JSON serialization
         mbrs_measurements[str(exp_id)]["setpoints"][variable] = json.loads(
             group.reset_index()[["setpoint_time", variable]].to_json()
         )
 
+    # Write updated measurements back to file
     with open("db_dtwin.json", "w") as file:
         json.dump(mbrs_measurements, file)
         file.close()
@@ -229,28 +296,41 @@ def get_feeds(runID):
 
 def create_feed_json(filename_db, filename_feed):
     """
-    Creates the feed.json file with the correct format
+    Convert feed profile to database-compatible JSON format.
+    
+    Reads pulse feed profiles and converts them to cumulative feed volumes
+    over time. Creates directory structure if needed.
+    
+    Args:
+        filename_db (str): Output path for database JSON file.
+        filename_feed (str): Input path for feed profile JSON file.
     """
 
+    # Load feed profiles
     with open(filename_feed) as json_file:
         Feed_dict = json.load(json_file)
 
     new_profile = {}
 
+    # Process experiments 19419 to 19442
     for i1 in range(19419, 19443):
 
+        # Extract pulse feeds and times
         f_pulse_new = np.array(list(Feed_dict[str(i1)]["Pulse_profile"]["Feed_pulse"]))
         tf_new = (
             np.array(list(Feed_dict[str(i1)]["Pulse_profile"]["time_pulse"])) * 3600
         )
 
+        # Convert to cumulative feed volumes
         new_profile[str(i1)] = {}
         new_profile[str(i1)]["measurement_time"] = tf_new.astype(int).tolist()
         new_profile[str(i1)]["setpoint_value"] = np.cumsum(f_pulse_new).tolist()
 
+    # Create directory if it doesn't exist
     if not os.path.isdir(os.path.dirname(filename_db)):
         os.makedirs(os.path.dirname(filename_db))
 
+    # Write output file
     with open(filename_db, "w") as file:
         json.dump(new_profile, file)
         file.close()
@@ -263,10 +343,20 @@ def create_feed_json(filename_db, filename_feed):
 
 def get_metadata(runID, engine):
     """
-    Get metadata for a runID from the database
+    Query metadata for a run from the database.
+    
+    Retrieves run metadata, currently only the start_time field.
+    
+    Args:
+        runID (int): The run identifier.
+        engine: SQLAlchemy database engine.
+    
+    Returns:
+        pd.DataFrame: DataFrame with run metadata.
     """
 
-    # TODO: just start_time by now
+    # Query start_time for this run
+    # TODO: Expand to include additional metadata fields
     sql_metadata = f""" 
         SELECT start_time FROM runs WHERE run_id = '{runID}' 
     """
