@@ -368,9 +368,22 @@ def get_metadata(runID, engine):
 
 def get_measurements(runID, engine):
     """
-    Get all the measurements for a runID from the database. Grouped by (exp_id, measurement)
+    Retrieve all measurements for a run from the database.
+    
+    Performs complex join across bioreactors, experiments, measurements,
+    measuring setup, and variable types tables. Returns grouped by
+    experiment and measurement type.
+    
+    Args:
+        runID (int): The run identifier.
+        engine: SQLAlchemy database engine.
+    
+    Returns:
+        pd.DataFrameGroupBy or pd.DataFrame: Measurements grouped by (experiment_id, canonical_name),
+                                              or empty DataFrame if no data.
     """
 
+    # Complex query joining multiple tables to get complete measurement data
     sql_measurements = f"""
         SELECT exp.experiment_id, vt.canonical_name, m_exp.measurement_time, m_exp.measured_value 
         FROM bioreactors bio
@@ -385,19 +398,31 @@ def get_measurements(runID, engine):
     res = conn.execute(sqlalchemy.text(sql_measurements))
     conn.close()
 
+    # Convert to DataFrame and group by experiment and measurement type
     res_df = pd.DataFrame(res)
     return (
         res_df.groupby(["experiment_id", "canonical_name"])
-        if res_df.shape[0]
-        else res_df
+        if res_df.shape[0]  # Return grouped data if rows exist
+        else res_df  # Return empty DataFrame if no data
     )
 
 
 def get_exp_ids(runID, engine):
     """
-    Get all exp_ids for a runID from the database.
+    Retrieve all experiment IDs for a run.
+    
+    Queries the database to get the list of experiment IDs associated
+    with a specific run.
+    
+    Args:
+        runID (int): The run identifier.
+        engine: SQLAlchemy database engine.
+    
+    Returns:
+        pd.Series: Series of experiment IDs for this run.
     """
 
+    # Query experiment IDs by joining bioreactors, runs, and experiments
     sql_setpoints = f"""
         SELECT exp.experiment_id 
         FROM bioreactors bio
@@ -414,9 +439,22 @@ def get_exp_ids(runID, engine):
 
 def get_setpoints(runID, engine):
     """
-    Get all the setpoints for a runID from the database. Grouped by (exp_id, setpoints)
+    Retrieve all setpoints for a run from the database.
+    
+    Queries setpoints (control action targets) for all experiments in a run.
+    Joins across multiple tables to get complete setpoint information including
+    variable types and cultivation age.
+    
+    Args:
+        runID (int): The run identifier.
+        engine: SQLAlchemy database engine.
+    
+    Returns:
+        pd.DataFrameGroupBy or pd.DataFrame: Setpoints grouped by (experiment_id, canonical_name),
+                                              or empty DataFrame if no data.
     """
 
+    # Query setpoints by joining bioreactors, experiments, and variable types
     sql_setpoints = f"""
         SELECT exp.experiment_id, vt.canonical_name, sp.cultivation_age, sp.setpoint_value 
         FROM bioreactors bio
@@ -430,30 +468,42 @@ def get_setpoints(runID, engine):
     res = conn.execute(sqlalchemy.text(sql_setpoints))
     conn.close()
 
+    # Convert to DataFrame and group by experiment and setpoint type
     res_df = pd.DataFrame(res)
     return (
         res_df.groupby(["experiment_id", "canonical_name"])
-        if res_df.shape[0]
-        else res_df
+        if res_df.shape[0]  # Return grouped data if rows exist
+        else res_df  # Return empty DataFrame if no data
     )
 
 
 def read_run(runID):
     """
-    creates a json file with metadata, setpoints and measurements for an specific runID
+    Create a comprehensive JSON structure with all run data.
+    
+    Retrieves metadata, setpoints, and measurements for a run and
+    organizes them into a hierarchical JSON structure. Converts absolute
+    timestamps to relative times from experiment start.
+    
+    Args:
+        runID (int): The run identifier to read.
+    
+    Returns:
+        dict: Nested dictionary with structure:
+              {experiment_id: {metadata: {}, setpoints: {}, measurements_aggregated: {}}}
     """
 
-    # connect to database
+    # Connect to database
     db = get_connection_url()
     engine = sqlalchemy.create_engine(db, echo=False)
 
-    # initial data
+    # Initialize data structure
     json_data = {}
 
-    # get metadata
+    # Get run metadata (start time, etc.)
     metadata_df = get_metadata(runID, engine)
 
-    # create template
+    # Create template structure for each experiment
     exp_ids = get_exp_ids(runID, engine)
     for exp_id in exp_ids:
         json_data[exp_id] = {
@@ -462,32 +512,30 @@ def read_run(runID):
             "measurements_aggregated": {},
         }
 
-    # get setpoints
+    # Retrieve setpoints and measurements from database
     setpoints_groups_df = get_setpoints(runID, engine)
-
-    # get measurements
     measurements_groups_df = get_measurements(runID, engine)
 
-    # iterate setpoints groups
+    # Process setpoints for each experiment and variable
     for (exp_id, variable), group in setpoints_groups_df:
-        # rename column by variable type
+        # Rename columns to match expected format
         group.rename(
             columns={"setpoint_value": variable, "cultivation_age": "setpoint_time"},
             inplace=True,
         )
 
-        # Reset index: to start from 0 for each measurement count of the original dataframe
+        # Store setpoints in JSON structure (reset index for clean serialization)
         json_data[exp_id]["setpoints"][variable] = json.loads(
             group.reset_index()[["setpoint_time", variable]].to_json()
         )
 
-    # iterate measurements groups
+    # Process measurements for each experiment and variable
     for (exp_id, variable), group in measurements_groups_df:
-        # rename column by variable type
+        # Rename columns to match expected format
         group.rename(columns={"measured_value": variable}, inplace=True)
         group["time"] = group["measurement_time"]
 
-        # calculate relative time (measurement_time - experiment start time)
+        # Convert absolute timestamps to relative time from start
         def calculate_sample_time(measurement):
             return pd.Timedelta(
                 measurement[["time"]][0] - metadata_df["start_time"][0]
@@ -495,8 +543,7 @@ def read_run(runID):
 
         group["measurement_time"] = group.apply(calculate_sample_time, axis=1)
 
-        # add measurements for each exp id.
-        # Reset index: to start from 0 for each measurement count of the original dataframe
+        # Store measurements in JSON structure (reset index for clean serialization)
         json_data[exp_id]["measurements_aggregated"][variable] = json.loads(
             group.reset_index()[["measurement_time", variable]].to_json()
         )
@@ -506,17 +553,28 @@ def read_run(runID):
 
 def query_and_save(runID, filepath):
     """
-    Get all the information from a runID
+    Query all run data and save to JSON file.
+    
+    Retrieves complete run information (metadata, setpoints, measurements)
+    and saves it to a JSON file for historical monitoring and analysis.
+    Creates directory structure if needed.
+    
+    Args:
+        runID (int): The run identifier to query.
+        filepath (str): Relative path for output JSON file.
     """
 
+    # Get current working directory
     rootdir = os.getcwd()
 
+    # Query all data for this run
     db_json = read_run(runID)
 
-    # save JSON file for historical monitoring
+    # Create directory if it doesn't exist
     if not os.path.isdir(os.path.dirname(f"{rootdir}/{filepath}")):
         os.makedirs(os.path.dirname(f"{rootdir}/{filepath}"))
 
+    # Save to JSON file
     pd.DataFrame(db_json).to_json(f"{rootdir}/{filepath}")
 
 
@@ -527,15 +585,25 @@ def query_and_save(runID, filepath):
 
 def run2ids(connection, runID):
     """
-    Returns the profile ids and name for a given runID
+    Get profile IDs and names for a run.
+    
+    Retrieves the mapping between experiments and their profiles for
+    a specific run. Useful for translating between experiment IDs and
+    profile configurations.
 
     Parameters
     ----------
     connection: sqlalchemy.engine.Connection
-        Connection to mysql db using sqlalchemy.
+        Connection to MySQL database using SQLAlchemy.
     runID: int
-        Identification number for a experiment.
+        Identification number for an experiment run.
+    
+    Returns
+    -------
+    pd.DataFrame
+        DataFrame with columns: profile_id, profile_name, experiment_id.
     """
+    # Query profile and experiment associations for this run
     query = sqlalchemy.text(
         f"SELECT profiles.profile_id, profiles.profile_name, experiments.experiment_id "
         f"FROM profiles "
@@ -548,29 +616,36 @@ def run2ids(connection, runID):
 
 def delete_setpoints(connection, runID, exp_id, from_time=0, type_id=99):
     """
-    Deletes setpoints from a given runID and bioreactor, from a given time on.
+    Delete setpoints from a specific time onwards.
+    
+    Removes setpoint records for a bioreactor experiment starting from
+    a specified cultivation age. Prompts for confirmation before deletion.
+    Typically used to clear old setpoints before updating with new values.
 
     Parameters
     ----------
     connection: sqlalchemy.engine.Connection
-        Connection to mysql db using sqlalchemy.
+        Connection to MySQL database using SQLAlchemy.
     runID: int
-        Identification number for a experiment.
+        Identification number for the experiment run.
     exp_id: int
-        The exp_id value for the MBR in the current runID.
-    from_time: int/float
-        The time (in seconds) from which the setpoints want to be deleted.
-    type_id: int
-        Which setpoint want to be changed. In the database, this would be the 'variable_type_id' column.
-
+        The experiment ID for the mini bioreactor in the current run.
+    from_time: int/float, optional
+        The cultivation age (in seconds) from which setpoints should be deleted. Default is 0.
+    type_id: int, optional
+        The variable_type_id for the setpoint to delete (99 = glucose feed). Default is 99.
     """
+    # Warn user about deletion
     print(
         f"Attention! This will delete the setpoint data for run {runID} and bioreactor exp_id {exp_id} after experiment"
         f"time {from_time}s. Press enter to continue and q to quit."
     )
 
+    # Get profile ID for this experiment
     profiles = run2ids(connection, runID)
     profile_id = profiles.loc[profiles["experiment_id"] == exp_id]["profile_id"].iloc[0]
+    
+    # Build and execute DELETE query
     query = (
         f" DELETE FROM setpoints "
         f" WHERE profile_id = {profile_id} AND variable_type_id = {type_id} AND cultivation_age > {from_time}; "
@@ -588,30 +663,42 @@ def add_setpoints(
     type_name="Feed_glc_cum_setpoints",
 ):
     """
-    Adds setpoints to a given experiment (runID) in a specific position (profile_name).
+    Add setpoints to an experiment profile.
+    
+    Inserts new setpoint records into the database for a specific experiment.
+    Setpoints define the target values for control variables (e.g., feed rates)
+    over time during cultivation.
 
     Parameters
     ----------
     connection: sqlalchemy.engine.Connection
-        Connection to mysql db using sqlalchemy.
+        Connection to MySQL database using SQLAlchemy.
     runID: int
-        Identification number for a experiment.
+        Identification number for the experiment run.
     exp_id: int
-        The exp_id value for the MBR in the current runID.
+        The experiment ID for the mini bioreactor in the current run.
     setpoint_df: pandas.DataFrame
-        A dataframe with two columns measurement_time and setpoint_value
-    type_id: int
-        Which setpoint want to be changed. In the database, this would be the 'variable_type_id' column.
-
+        DataFrame with columns: measurement_time (or setpoint_time) and setpoint_value.
+    type_id: int, optional
+        The variable_type_id for the setpoint (99 = glucose feed). Default is 99.
+    type_name: str, optional
+        Name of the setpoint column in the input DataFrame. Default is "Feed_glc_cum_setpoints".
     """
+    # Get profile ID for this experiment
     profiles = run2ids(connection, runID)
     profile_id = profiles.loc[profiles["experiment_id"] == exp_id]["profile_id"].iloc[0]
+    
+    # Rename columns to match database schema
     setpoint_df.rename(columns={"setpoint_time": "cultivation_age"}, inplace=True)
     setpoint_df.rename(columns={type_name: "setpoint_value"}, inplace=True)
+    
+    # Add required metadata columns
     setpoint_df["profile_id"] = profile_id
     setpoint_df["variable_type_id"] = type_id
-    setpoint_df["scope"] = "e"
-    setpoint_df["checksum"] = 1  # IDK what is this
+    setpoint_df["scope"] = "e"  # Experiment scope
+    setpoint_df["checksum"] = 1  # Checksum for data integrity (TODO: clarify purpose)
+    
+    # Bulk insert setpoints into database
     setpoint_df.to_sql(
         "setpoints", con=connection, if_exists="append", index=False, method="multi"
     )
@@ -619,18 +706,29 @@ def add_setpoints(
 
 def save_actions(runID, file_path):
     """
-    Main function to save all feeding profiles for MBRs for a runID and a file containing the feeds.
+    Save feeding profiles for all mini bioreactors in a run.
+    
+    Reads feed setpoints from a JSON file and updates the database.
+    Deletes existing setpoints before inserting new ones to ensure
+    clean updates. All operations occur in a single transaction.
+    
+    Args:
+        runID (int): The run identifier.
+        file_path (str): Path to JSON file containing feed profiles.
     """
 
+    # Load feed profiles from file
     with open(file_path, "r") as file:
         feed = json.load(file)
         file.close()
 
+    # Convert feed data to DataFrames
     setpoints_df = dict()
     for exp_id in feed:
         setpoints_df[exp_id] = pd.DataFrame.from_dict(feed[exp_id])
 
-    # delete setpoint and add new values for each exp_id (mbr)
+    # Update database: delete old setpoints and add new ones
+    # Execute in single transaction for atomicity
     with engine.connect() as connection:
         with connection.begin():
             for exp_id in setpoints_df:
@@ -640,32 +738,48 @@ def save_actions(runID, file_path):
 
 def save_multi_actions(runID, file_path):
     """
-    Main function to save all setpoints profiles for MBRs from file.
+    Save multiple types of setpoint profiles for all mini bioreactors.
+    
+    Reads setpoints for glucose, enzyme, and dextrine feeds from a JSON file
+    and updates the database. Handles multiple variable types simultaneously.
+    Deletes existing setpoints before inserting new ones.
+    
+    Args:
+        runID (int): The run identifier.
+        file_path (str): Path to JSON file containing multiple setpoint types.
     """
 
+    # Load setpoints from file
     with open(file_path, "r") as file:
         feed = json.load(file)
         file.close()
 
+    # Define variable types to process
+    # (variable_type_id, column_name_in_file)
     variable_types = [
-        (99, "Feed_glc_cum_setpoints"),
-        (112, "Feed_enzyme_cum_setpoints"),
-        (131, "Feed_dextrine_cum_setpoints"),
+        (99, "Feed_glc_cum_setpoints"),      # Glucose feed
+        (112, "Feed_enzyme_cum_setpoints"),   # Enzyme feed
+        (131, "Feed_dextrine_cum_setpoints"), # Dextrine feed
     ]
 
-    # delete setpoint and add new values for each exp_id (mbr)
+    # Update database: delete old setpoints and add new ones
+    # Execute in single transaction for atomicity
     with engine.connect() as connection:
         with connection.begin():
             for exp_id in feed:
 
-                # delete/add data for each variable type
+                # Process each variable type for this experiment
                 for type_id, type_name in variable_types:
 
+                    # Extract setpoints for this variable type
                     setpoint_df = pd.DataFrame.from_dict(
                         feed[exp_id]["setpoints"][type_name]
                     )
 
+                    # Delete old setpoints from time 0 onwards
                     delete_setpoints(connection, runID, int(exp_id), 0, type_id)
+                    
+                    # Add new setpoints
                     add_setpoints(
                         connection, runID, int(exp_id), setpoint_df, type_id, type_name
                     )
@@ -678,14 +792,28 @@ def save_multi_actions(runID, file_path):
 
 def getIDs(run_id, engine):
     """
-    Get experiments IDs for a runID
+    Get the range of experiment IDs for a run.
+    
+    Retrieves the minimum and maximum experiment IDs associated with
+    a run, ordered by container number. Useful for batch operations
+    on all experiments in a run.
+    
+    Args:
+        run_id (int): The run identifier.
+        engine: SQLAlchemy database engine.
+    
+    Returns:
+        tuple: (min_experiment_id, max_experiment_id).
     """
 
+    # Query experiment IDs ordered by container number
     sql_query = f"""
         SELECT experiment_id FROM experiments exp 
         INNER JOIN bioreactors bio ON exp.bioreactor_id = bio.bioreactor_id
         WHERE bio.run_id = {run_id} ORDER BY container_number ASC"""
     df = pd.read_sql(sql_query, engine)
+    
+    # Find the ID range
     min_value = df["experiment_id"].min()
     max_value = df["experiment_id"].max()
 
@@ -694,8 +822,18 @@ def getIDs(run_id, engine):
 
 def deleteMeasurements(min_exp, max_exp, engine):
     """
-    Delete all the measurements for a range of experiments IDs
+    Delete dummy measurements for a range of experiments.
+    
+    Removes all measurements labeled as 'dummy' within the specified
+    experiment ID range. Used to clean up placeholder data before
+    inserting real measurements.
+    
+    Args:
+        min_exp (int): Minimum experiment ID in range (inclusive).
+        max_exp (int): Maximum experiment ID in range (inclusive).
+        engine: SQLAlchemy database engine.
     """
+    # Delete dummy measurements in the experiment ID range
     sql_query = f"""
         DELETE FROM measurements_experiments 
         WHERE label = 'dummy' AND  experiment_id BETWEEN {min_exp} AND {max_exp} """
@@ -704,16 +842,30 @@ def deleteMeasurements(min_exp, max_exp, engine):
 
 def delete_data(runID):
     """
-    Delete all the information for an specific runID
+    Delete all measurement data for a specific run.
+    
+    Safety function to clean measurement data for emulator runs.
+    Only works with whitelisted run IDs to prevent accidental deletion
+    of real experimental data. Removes all dummy measurements.
+    
+    Args:
+        runID (int): The run identifier to clean.
+    
+    Exits:
+        If runID is not in the whitelist [623, 671, 672, 770].
     """
 
+    # Whitelist of emulator run IDs that can be safely deleted
     if not runID in [623, 671, 672, 770]:
         print(f"Emulator cannot run in the selected run id: {runID}")
         sys.exit()
 
     print("Deleting measurements for runID: " f"{runID}")
 
+    # Get experiment ID range for this run
     min_exp, max_exp = getIDs(runID, engine)
+    
+    # Delete all dummy measurements in this range
     deleteMeasurements(min_exp, max_exp, engine)
 
-    # TODO: delete setpoints
+    # TODO: Also delete setpoints in future implementation
