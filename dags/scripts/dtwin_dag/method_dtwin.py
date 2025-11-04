@@ -22,18 +22,41 @@ from function_simulation import function_simulation
 
 # %% Simulator
 def simulate(time_initial, time_final, DTWIN_state, DTWIN_design, DTWIN_config):
+    """
+    Simulate the digital twin state evolution from initial to final time.
+    
+    Propagates the digital twin state forward in time by solving the ODE system
+    for each bioreactor. Updates both the full trajectory and current state.
+    
+    Args:
+        time_initial (float): Simulation start time in hours.
+        time_final (float): Simulation end time in hours.
+        DTWIN_state (dict): Current state of all bioreactors.
+        DTWIN_design (dict): Design parameters for each bioreactor.
+        DTWIN_config (dict): Global digital twin configuration.
+    
+    Returns:
+        dict: Updated digital twin state after simulation.
+    """
+    # Create a deep copy to avoid modifying the original state
     NEW_DTWIN_state = deepcopy(DTWIN_state)
 
+    # Iterate over all bioreactors
     nn = 0
     for i1 in DTWIN_config["Brxtor_list"]:
+        # Define time span for simulation
         ts0 = np.array([time_initial, time_final])
+        
+        # Build initial state vector from current bioreactor state
         Xo0 = np.array([])
         for i2 in DTWIN_config["Species_list"]:
             Xo0 = np.append(Xo0, DTWIN_state[i1]["Current"][i2])
+        
+        # Build control input vector
         u0 = np.array(
             [
                 DTWIN_design[i1]["Glucose_feed"],
-                nn,
+                nn,  # Bioreactor index
                 DTWIN_config["number_br"],
                 DTWIN_design[i1]["Induction_time"],
                 DTWIN_design[i1]["Inductor_conc"],
@@ -41,15 +64,21 @@ def simulate(time_initial, time_final, DTWIN_state, DTWIN_design, DTWIN_config):
                 DTWIN_design[i1]["Enzyme_feed"],
             ]
         )
+        # Get model parameters
         # THs=np.array(DTWIN_config['Params'])
         THs = DTWIN_config["Params"]
         # print(THs)
+        
+        # Get pulse schedule (feeding pulses)
         D0 = DTWIN_design[i1]["Pulses"].copy()
 
+        # Run the simulation using function_simulation
         t, y = function_simulation(ts0, Xo0, u0, THs, D0)
 
+        # Update state trajectories for all species
         nn2 = 0
         for i2 in DTWIN_config["Species_list"]:
+            # Append new time points and values to trajectory history
             NEW_DTWIN_state[i1]["All"][i2]["time"] = np.append(
                 np.array(NEW_DTWIN_state[i1]["All"][i2]["time"]), t[1:].flatten()
             ).tolist()
@@ -57,6 +86,7 @@ def simulate(time_initial, time_final, DTWIN_state, DTWIN_design, DTWIN_config):
                 np.array(NEW_DTWIN_state[i1]["All"][i2]["Value"]), y[1:, nn2].flatten()
             ).tolist()
 
+            # Update current state to final simulated value
             NEW_DTWIN_state[i1]["Current"][i2] = float(y[-1, nn2])
 
             nn2 = nn2 + 1
@@ -67,31 +97,56 @@ def simulate(time_initial, time_final, DTWIN_state, DTWIN_design, DTWIN_config):
 
 # %% Sampler
 def sample(time_initial, time_final, DTWIN_state, DTWIN_design, DTWIN_config):
+    """
+    Generate noisy measurements from the true digital twin state.
+    
+    Samples the state at specified time points and adds measurement noise
+    to simulate real sensor behavior. DOT measurements and other species
+    have different noise characteristics.
+    
+    Args:
+        time_initial (float): Start time for sampling window.
+        time_final (float): End time for sampling window.
+        DTWIN_state (dict): Current true state of all bioreactors.
+        DTWIN_design (dict): Design parameters including sampling times.
+        DTWIN_config (dict): Configuration including noise parameters.
+    
+    Returns:
+        dict: Updated digital twin state with new sample measurements.
+    """
+    # Create a deep copy to avoid modifying the original state
     NEW_DTWIN_state = deepcopy(DTWIN_state)
 
     for i1 in DTWIN_config["Brxtor_list"]:
         for i2 in DTWIN_config["Species_list"]:
+            # DOT measurements have no timing noise
             if i2 == "DOT":
                 ts_sample_all = np.array(DTWIN_design[i1]["time_sample"][i2])
             else:
+                # Add timing noise to other measurements (currently disabled with *0)
                 ts_sample_all = np.array(DTWIN_design[i1]["time_sample"][i2]) * (
                     1
                     + np.random.normal(
                         0, 1, size=len(np.array(DTWIN_design[i1]["time_sample"][i2]))
                     )
                     * DTWIN_config["Noise_time"]
-                    * 0
+                    * 0  # Timing noise currently disabled
                 )
 
+            # Filter samples within the time window
             ts_sample = ts_sample_all[
                 (ts_sample_all > time_initial) & (ts_sample_all <= time_final)
             ]
 
+            # Get the state trajectory for interpolation
             tX_state = DTWIN_state[i1]["All"][i2]["time"]
             X_state = DTWIN_state[i1]["All"][i2]["Value"]
 
+            # Apply different noise models for DOT vs other measurements
             if i2 == "DOT":
+                # Interpolate state at sample times
                 X_interp = np.interp(ts_sample, tX_state, X_state)
+                # DOT has reduced noise (1/5 of concentration noise)
                 X_interp = X_interp * (
                     1
                     + np.random.normal(0, 1, size=len(X_interp))
@@ -100,13 +155,16 @@ def sample(time_initial, time_final, DTWIN_state, DTWIN_design, DTWIN_config):
                     * DTWIN_config["Noise_concentration"]
                 )
             else:
+                # Interpolate state at sample times
                 X_interp = np.interp(ts_sample, tX_state, X_state)
+                # Other species use full concentration noise
                 X_interp = X_interp * (
                     1
                     + np.random.normal(0, 1, size=len(X_interp))
                     * DTWIN_config["Noise_concentration"]
                 )
 
+            # Append new samples to sample history
             NEW_DTWIN_state[i1]["Sample"][i2]["time"] = np.append(
                 np.array(NEW_DTWIN_state[i1]["Sample"][i2]["time"]), ts_sample
             ).tolist()
@@ -119,21 +177,42 @@ def sample(time_initial, time_final, DTWIN_state, DTWIN_design, DTWIN_config):
 
 # %% Write
 def write(filename, time_initial, time_final, DTWIN_state, DTWIN_design, DTWIN_config):
-
+    """
+    Write digital twin measurements to database format.
+    
+    Exports sampled measurements and feed information to a JSON file compatible
+    with the database schema. Converts internal state representation to experiment
+    measurement format. Handles special conversions like Xv to OD600.
+    
+    Args:
+        filename (str): Path to the JSON file to update.
+        time_initial (float): Start time of writing window in hours.
+        time_final (float): End time of writing window in hours.
+        DTWIN_state (dict): Current digital twin state with samples.
+        DTWIN_design (dict): Design parameters including pulses.
+        DTWIN_config (dict): Configuration including species list.
+    
+    Returns:
+        dict: Updated file dictionary with new measurements.
+    """
+    # Load existing file data
     with open(filename) as json_file:
         File_dict = json.load(json_file)
 
+    # Get time samples for analysis window
     time_samples_analysis = DTWIN_config["time_samples_analysis"]
     for i1 in DTWIN_config["Brxtor_list"]:
 
         for i2 in DTWIN_config["Species_list"]:
             if i2 == "Xv":
+                # Convert Xv (viable biomass) to OD600 using factor 2.7027
                 # tsf=(np.array(list(File_dict[i1]['measurements_aggregated']['OD600']['measurement_time'].values()))).tolist()
                 # Xsf=list(File_dict[i1]['measurements_aggregated']['OD600']['OD600'].values())
 
                 ts_new = np.array(DTWIN_state[i1]["Sample"][i2]["time"])
                 Xsf_new = np.array(DTWIN_state[i1]["Sample"][i2]["Value"]) * 2.7027
 
+                # Filter samples up to analysis time window
                 time_samples_iter = np.array(time_samples_analysis)
                 time_samples_iter = time_samples_iter[
                     time_samples_iter <= (time_final - 1)
@@ -379,6 +458,7 @@ def write(filename, time_initial, time_final, DTWIN_state, DTWIN_design, DTWIN_c
                 "Cumulated_feed_volume_enzyme"
             ][str(i3)] = (F_enzyme_all[i3] + 0)
 
+    # Write updated data back to file
     with open(filename, "w") as outfile:
         json.dump(File_dict, outfile)
 
@@ -387,12 +467,30 @@ def write(filename, time_initial, time_final, DTWIN_state, DTWIN_design, DTWIN_c
 
 # %% Read
 def read(filename, DTWIN_design, DTWIN_config):
+    """
+    Read feed setpoints and measurements from database format.
+    
+    Imports feed setpoints and actual measurements from a JSON file and
+    updates the digital twin design structure. Merges measured and setpoint
+    data to provide complete feed schedules.
+    
+    Args:
+        filename (str): Path to the JSON file to read.
+        DTWIN_design (dict): Current design parameters to update.
+        DTWIN_config (dict): Configuration including bioreactor list.
+    
+    Returns:
+        dict: Updated design with feed pulses from file.
+    """
+    # Create a deep copy to avoid modifying the original design
     NEW_DTWIN_design = deepcopy(DTWIN_design)
 
+    # Load file data
     with open(filename) as json_file:
         File_dict = json.load(json_file)
 
     for i1 in DTWIN_config["Brxtor_list"]:
+        # Read glucose feed setpoints
         f0_pulse_setpoint = np.array(
             list(
                 File_dict[i1]["setpoints"]["Feed_glc_cum_setpoints"][

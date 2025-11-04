@@ -140,7 +140,10 @@ def subplot_dict(
     layout=dict(),
 ):
     """
-    Plot dictionaries with plotly
+    Plot dictionaries with plotly.
+    
+    Create a multi-panel plot showing simulation and/or experimental data
+    for multiple bioreactor experiments. Each state variable gets its own subplot.
 
     Parameters
     ----------
@@ -176,43 +179,61 @@ def subplot_dict(
 
     return_fig: bool, optional
         If True returns plotly.Figure. Default: False.
+    
+    show_constants: dict, optional
+        Dictionary with 'h' for horizontal lines and 'v' for vertical lines to overlay.
+    
+    layout: dict, optional
+        Additional layout parameters for the figure.
+    
+    Returns
+    -------
+    plotly.Figure or None
+        If return_fig=True, returns the figure object, otherwise None.
 
     """
 
+    # Extract the list of state variables to plot
     states = list(plot_states.keys())
 
+    # Calculate subplot grid dimensions (2 columns by default)
     div_mod = np.divmod(len(states), 2)
-    nx = int(sum(div_mod))
+    nx = int(sum(div_mod))  # Number of rows
 
+    # Add extra row for feed plot if needed
     if div_mod[1] == 0:
         nx = nx + bool(feed)
 
-    ny = 2
+    ny = 2  # Always use 2 columns
 
-    # if len(states) == 4:
-    #    nx = 2
-    #    ny = 2
-    # else:
-    #    nx = len(states)
-    #    ny = 1
-
+    # Initialize subplot counter
     i = 0
 
+    # Create figure with subplots arranged in grid
     fig = make_subplots(rows=nx, cols=ny, shared_xaxes=True)
 
+    # Determine which dataset to use for experiment keys
     if sim_data:
         keys = list(sim_data.keys())
     else:
         keys = list(exp_data.keys())
 
+    # Set up color mapping for different experiments
     cmap = matplotlib.cm.nipy_spectral
     norm = matplotlib.colors.Normalize(vmin=0, vmax=len(keys))
+    
+    # Iterate through subplot grid
     for row in range(nx):
         for col in range(ny):
             try:
+                # Get the state variable for this subplot
                 state = states[i]
+                
+                # Plot data for each experiment key
                 for j, key in enumerate(keys):
+                    # Add simulation data if provided
                     if sim_data:
+                        # Add simulation trace as a line plot
                         fig.add_trace(
                             go.Scatter(
                                 x=sim_data[key].index,
@@ -226,18 +247,21 @@ def subplot_dict(
                             row=row + 1,
                             col=col + 1,
                         )
+                    
+                    # Add experimental data if provided
                     if exp_data:
-                        # Experimental data
+                        # Extract standard deviation if provided for error bars
                         if sd:
                             sd_array = sd[key][state].dropna().values
                         else:
                             sd_array = None
+                        # Add experimental measurements with error bars and markers
                         fig.add_trace(
                             go.Scatter(
                                 x=exp_data[key][state].dropna().index,
                                 y=exp_data[key][state].dropna().values,
                                 error_y=dict(
-                                    type="data",  # value of error bar given in data coordinates
+                                    type="data",  # Error bar values given in data coordinates
                                     array=sd_array,
                                     visible=True,
                                 ),
@@ -254,11 +278,14 @@ def subplot_dict(
                             col=col + 1,
                         )
 
+                        # Add horizontal reference line if specified
                         if (
                             "h" in show_constants.keys()
                             and show_constants["h"] is not None
                         ):
                             fig.add_hline(y=show_constants["h"])
+                        
+                        # Add vertical reference lines if specified
                         if (
                             "v" in show_constants.keys()
                             and show_constants["v"] is not None
@@ -266,6 +293,7 @@ def subplot_dict(
                             for val in show_constants["v"]:
                                 fig.add_vline(x=val)
 
+                # Update axis labels for this subplot
                 fig.update_xaxes(title_text="time(h)", row=row + 1, col=col + 1)
                 fig.update_yaxes(
                     title_text=state + "(" + plot_states[state] + ")",
@@ -274,9 +302,11 @@ def subplot_dict(
                 )
 
             except IndexError:
+                # Handle case where we run out of states but have feed data to plot
                 if i == nx * ny - 1 and bool(feed):
                     for j, key in enumerate(keys):
                         print("Feeeed")
+                        # Add feed data as bar chart in the last subplot
                         fig.add_trace(
                             go.Bar(
                                 x=feed[key]["ts"],
@@ -290,16 +320,21 @@ def subplot_dict(
                             col=col + 1,
                         )
 
+            # Move to next subplot
             i += 1
 
+    # Apply custom layout parameters if provided
     if layout:
         fig.update_layout(**layout)
 
+    # Display the figure if requested
     if show:
         fig.show()
 
+    # Save figure to HTML file if requested
     if save:
         fig.write_html(path + "/" + fig_name + ".html")
 
+    # Return figure object if requested
     if return_fig:
         return fig
