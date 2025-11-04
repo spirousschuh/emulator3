@@ -1,3 +1,9 @@
+"""
+Local Database Loader Module.
+
+Handles loading of experimental data from a local database instance.
+"""
+
 import sqlalchemy
 import pandas as pd
 import json
@@ -8,13 +14,13 @@ from datetime import datetime
 
 
 def get_connection_url():
-    host ='localhost'# "mysql" #"host.docker.internal"
+    host = "localhost"  # "mysql" #"host.docker.internal"
     port = "3306"
     user = "dbuser"
     password = "dbpassword123"
     database = "ilabdb"
-    
-    return f'mysql+mysqlconnector://{user}:{password}@{host}:{port}/{database}'
+
+    return f"mysql+mysqlconnector://{user}:{password}@{host}:{port}/{database}"
 
 
 # Get metadata for a runID from the database
@@ -46,8 +52,11 @@ def get_measurements(runID, engine):
     conn.close()
 
     res_df = pd.DataFrame(res)
-    return res_df.groupby(["experiment_id", "canonical_name"]) if res_df.shape[0] else res_df
-
+    return (
+        res_df.groupby(["experiment_id", "canonical_name"])
+        if res_df.shape[0]
+        else res_df
+    )
 
 
 # Get all the setpoints for a runID from the database. Grouped by (exp_id, setpoints)
@@ -64,9 +73,13 @@ def get_setpoints(runID, engine):
     conn = engine.connect()
     res = conn.execute(sqlalchemy.text(sql_setpoints))
     conn.close()
-    
+
     res_df = pd.DataFrame(res)
-    return res_df.groupby(["experiment_id", "canonical_name"]) if res_df.shape[0] else res_df
+    return (
+        res_df.groupby(["experiment_id", "canonical_name"])
+        if res_df.shape[0]
+        else res_df
+    )
 
 
 # creates a json file with metadata, setpoints and measurements for an specific runID
@@ -74,24 +87,24 @@ def read_run(runID):
 
     # connect to database
     # if runID == 623:
-        # db = 'mysql+mysqlconnector://dbuser:dbpassword123@host.docker.internal:3306/ilabdb'
+    # db = 'mysql+mysqlconnector://dbuser:dbpassword123@host.docker.internal:3306/ilabdb'
     # else:
     #     db = 'mysql+mysqlconnector://Autobio:bvt1autobio!@ht-server.bioprocess.tu-berlin.de:3306/ilabdb'
-    
+
     db = get_connection_url()
 
     engine = sqlalchemy.create_engine(db, echo=False)
-    
+
     # initial data
     json_data = {}
-    
+
     # get metadata
     metadata_df = get_metadata(runID, engine)
     # metadata_df["start_time"]
 
     # get setpoints
     setpoints_groups_df = get_setpoints(runID, engine)
-     
+
     # get measurements
     measurements_groups_df = get_measurements(runID, engine)
 
@@ -100,13 +113,18 @@ def read_run(runID):
         # rename column by variable type
         group.rename(columns={"setpoint_value": variable}, inplace=True)
 
-        # init template for each exp id. Add setpoint as json with 11 null values. 
+        # init template for each exp id. Add setpoint as json with 11 null values.
         # Reset index: to start from 0 for each measurement count of the original dataframe
         json_data[exp_id] = {
-            "metadata": {}, 
-            "setpoints": json.loads(group.reset_index()[["cultivation_age", variable]].shift(periods=11).to_json()), 
-            "measurements_aggregated": {}}
-        
+            "metadata": {},
+            "setpoints": json.loads(
+                group.reset_index()[["cultivation_age", variable]]
+                .shift(periods=11)
+                .to_json()
+            ),
+            "measurements_aggregated": {},
+        }
+
     # iterate measurements groups
     for (exp_id, variable), group in measurements_groups_df:
         # rename column by variable type
@@ -115,16 +133,21 @@ def read_run(runID):
 
         # calculate relative time (measurement_time - experiment start time)
         def calculate_sample_time(measurement):
-            return pd.Timedelta(measurement[["time"]][0] - metadata_df["start_time"][0]).total_seconds()
-        group["measurement_time"] = group.apply(calculate_sample_time , axis=1)
+            return pd.Timedelta(
+                measurement[["time"]][0] - metadata_df["start_time"][0]
+            ).total_seconds()
 
-        # add measurements for each exp id. 
+        group["measurement_time"] = group.apply(calculate_sample_time, axis=1)
+
+        # add measurements for each exp id.
         # Reset index: to start from 0 for each measurement count of the original dataframe
-        json_data[exp_id]["measurements_aggregated"][variable] = json.loads(group.reset_index()[["measurement_time", variable]].to_json()) 
+        json_data[exp_id]["measurements_aggregated"][variable] = json.loads(
+            group.reset_index()[["measurement_time", variable]].to_json()
+        )
 
     return json_data
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     runID = 623
     read_run(runID)
