@@ -15,27 +15,51 @@ import json
 
 # %% Get Data
 def get_data(filename, Exp_train=[], zero_time_position=0):
+    """
+    Load and process experimental data from Excel file.
+    
+    Reads measurement data, design conditions, and probe information from
+    a multi-sheet Excel file. Filters data for specified experiments and
+    organizes into a hierarchical dictionary structure.
+    
+    Args:
+        filename (str): Path to Excel file with sheets: 0=measurements, 1=design, 2=probes.
+        Exp_train (list, optional): List of experiment IDs to include. If empty, uses all. Default: [].
+        zero_time_position (int, optional): Time offset for zeroing time series. Default: 0.
+    
+    Returns:
+        dict: Nested dictionary with keys 'Measurement', 'Design', 'Probes', each containing
+              experiment-specific data organized by species/variables.
+    """
+    # Load data from three Excel sheets
     # if type(filename)==str:
-    X_data = pd.read_excel(filename, sheet_name=0)
-    u_data = pd.read_excel(filename, sheet_name=1)
-    X_probe = pd.read_excel(filename, sheet_name=2)
+    X_data = pd.read_excel(filename, sheet_name=0)  # Measurement data
+    u_data = pd.read_excel(filename, sheet_name=1)  # Design/control data
+    X_probe = pd.read_excel(filename, sheet_name=2)  # Probe data
 
+    # Use all experiments if none specified
     if len(Exp_train) == 0:
         Exp_train = X_data["Exp"].unique()
 
+    # Filter data for training experiments only
     X_data_train = X_data.loc[X_data["Exp"].isin(Exp_train)]
     u_data_train = u_data.loc[u_data["Exp"].isin(Exp_train)]
     X_probe_train = X_probe.loc[X_probe["Exp"].isin(Exp_train)]
 
+    # Extract available species and variable names
     X_species = list(X_data_train["Species"].unique())
     u_keys = list(u_data_train.keys())
     X_probe_keys = list(X_probe_train.keys())
 
+    # Initialize data structure
     Data = {"Measurement": {}, "Design": {}, "Probes": {}}
     Meas = {}
     Design = {}
     Prob = {}
+    
+    # Process each experiment
     for j in Exp_train:
+        # Extract measurement time series for each species
         Spec = {}
         for i in X_species:
             Spec[str(i)] = {
@@ -57,12 +81,15 @@ def get_data(filename, Exp_train=[], zero_time_position=0):
                 .tolist()
             )
 
+        # Store measurements for this experiment
         # Meas['Exp'+str(j)]=Spec
         Meas[j] = Spec
 
+        # Extract design conditions and control inputs
         Cond = {}
         for i in u_keys:
             if i == "Fecha":
+                # Handle date fields as strings
                 Cond[str(i)] = (
                     u_data_train.loc[(u_data_train["Exp"] == j)]
                     .loc[:, i]
@@ -70,16 +97,20 @@ def get_data(filename, Exp_train=[], zero_time_position=0):
                     .tolist()
                 )
             elif i == "Hora inoculación":
+                # Handle inoculation time field
                 Cond[str(i)] = u_data_train.loc[(u_data_train["Exp"] == j)].loc[
                     :, i
                 ]  # .to_numpy().tolist()
             else:
+                # Handle numeric fields
                 Cond[str(i)] = (
                     u_data_train.loc[(u_data_train["Exp"] == j)]
                     .loc[:, i]
                     .to_numpy()
                     .tolist()
                 )
+        
+        # Format inoculation time as string
         Cond["Hora inoculación"] = (
             Cond["Hora inoculación"].apply(lambda x: x.strftime("%H:%M:%S")).tolist()
         )
@@ -88,12 +119,16 @@ def get_data(filename, Exp_train=[], zero_time_position=0):
         # del(Cond['Fecha'])
         # del(Cond['Hora inoculación'])
         # Design['Exp'+str(j)]=Cond
+        
+        # Store design for this experiment
         Design[j] = Cond
 
+        # Extract probe data
         Pro = {}
 
         for i in X_probe_keys:
             if i == "Fecha":
+                # Handle date fields as strings
                 Pro[str(i)] = (
                     X_probe_train.loc[(X_probe_train["Exp"] == j)]
                     .loc[:, i]
