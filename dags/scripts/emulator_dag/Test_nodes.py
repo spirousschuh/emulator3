@@ -14,7 +14,7 @@ with open("EMULATOR_config.json") as json_file:
     EMULATOR_config = json.load(json_file)
 acc_factor = EMULATOR_config["acceleration"]
 
-Node_start_emulator.start_emu()
+Node_start_emulator.start_emulator()
 while 1:
 
     time.sleep(3600 / acc_factor)

@@ -7,7 +7,7 @@ import time
 
 
 from dags.scripts.emulator_dag.Node_run_emulator import run_emu
-from dags.scripts.emulator_dag.Node_start_emulator import start_emu
+from dags.scripts.emulator_dag.Node_start_emulator import start_emulator
 
 
 @pytest.fixture
@@ -22,7 +22,7 @@ def test_node_run_emulator(emulator_dag_path, tmp_path):
 
     acc_factor = EMULATOR_config["acceleration"]
 
-    start_emu(
+    start_emulator(
         db_emulator_template=emulator_dag_path / "db_emulator_template_new.json",
         db_emulator_output=emulator_dag_path / "db_emulator.json",
         emulator_config_file=emulator_dag_path / "EMULATOR_config.json",

@@ -10,7 +10,7 @@ import time
 
 
 # %%
-def start_emu(
+def start_emulator(
         db_emulator_template="db_emulator_template_new.json",
         db_emulator_output="db_emulator.json",
         emulator_config_file="EMULATOR_config.json",

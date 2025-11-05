@@ -4,22 +4,27 @@ Digital Twin Run Node Module.
 Executes digital twin prediction and state update iterations.
 """
 
-import numpy as np
-import pandas as pd
 import json
 import time
 
-import method_dtwin
+from dags.scripts.dtwin_dag import method_dtwin
+
 
 # %%
 
 
-def run_dtwin():
-    with open("DTWIN_state.json") as json_file:
+def run_dtwin(
+    state_file="DTWIN_state.json",
+    design_file="DTWIN_design.json",
+    config_file="DTWIN_config.json",
+    db_input_file="db_dtwin.json",
+    db_output_file="db_dtwin.json",
+):
+    with open(state_file) as json_file:
         DTWIN_state = json.load(json_file)
-    with open("DTWIN_design.json") as json_file:
+    with open(design_file) as json_file:
         DTWIN_design = json.load(json_file)
-    with open("DTWIN_config.json") as json_file:
+    with open(config_file) as json_file:
         DTWIN_config = json.load(json_file)
 
     time_final_absolute = time.time()
@@ -51,7 +56,11 @@ def run_dtwin():
     DTWIN_state["iter"] = DTWIN_state["iter"] + 1
     print("Time final", time_final)
     # READ FEEDING PROFILE from db_output
-    DTWIN_design = method_dtwin.read("db_dtwin.json", DTWIN_design, DTWIN_config)
+    DTWIN_design = method_dtwin.read(
+        db_input_file,
+        DTWIN_design,
+        DTWIN_config,
+    )
     # #METHOD SIMULATION
     NEW_DTWIN_state = method_dtwin.simulate(
         time_initial, time_final, DTWIN_state, DTWIN_design, DTWIN_config
@@ -70,7 +79,7 @@ def run_dtwin():
 
     # WRITE
     WR = method_dtwin.write(
-        "db_dtwin.json",
+        db_output_file,
         time_initial,
         time_final,
         NEW_DTWIN_state,
@@ -78,5 +87,5 @@ def run_dtwin():
         DTWIN_config,
     )
 
-    with open("DTWIN_state.json", "w") as outfile:
+    with open(state_file, "w") as outfile:
         json.dump(NEW_DTWIN_state, outfile)

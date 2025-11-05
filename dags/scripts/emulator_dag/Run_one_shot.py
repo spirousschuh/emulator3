@@ -9,7 +9,7 @@ import Node_run_emulator
 import Node_start_emulator
 
 # %%
-Node_start_emulator.start_emu()
+Node_start_emulator.start_emulator()
 time_a = time.time()
 time.sleep(0.934)
 # %%
