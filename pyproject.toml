@@ -25,7 +25,9 @@ dependencies = [
     "python-dotenv>=0.21.0",
     "numpy",
     "apache-airflow",
-
+    "pandas",
+    "matplotlib",
+    "scipy",
 ]
 
 [project.optional-dependencies]
@@ -36,5 +38,5 @@ dev = [
 ]
 
 [tool.setuptools.packages.find]
-where = ["dags"]
-exclude = ["tests*"]
+where = ["."]
+exclude = ["tests*", "images*"]

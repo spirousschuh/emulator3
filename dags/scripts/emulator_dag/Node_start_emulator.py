@@ -5,18 +5,23 @@ Initializes the emulator state and configuration at experiment start.
 """
 
 import numpy as np
-import pandas as pd
 import json
 import time
 
 
 # %%
-def start_emu():
-    with open("db_emulator_template_new.json") as json_file:
+def start_emu(
+        db_emulator_template="db_emulator_template_new.json",
+        db_emulator_output="db_emulator.json",
+        emulator_config_file="EMULATOR_config.json",
+        first_state_output_file="EMULATOR_state.json",
+        first_design_output_file="EMULATOR_design.json",
+):
+    with open(db_emulator_template) as json_file:
         db_emulator = json.load(json_file)
-    with open("db_emulator.json", "w") as outfile:
+    with open(db_emulator_output, "w") as outfile:
         json.dump(db_emulator, outfile)
-    with open("EMULATOR_config.json") as json_file:
+    with open(emulator_config_file) as json_file:
         EMULATOR_config = json.load(json_file)
 
     brxtor_list = EMULATOR_config["Brxtor_list"]
@@ -59,10 +64,10 @@ def start_emu():
         EMULATOR_design[i1]["Induction_time"] = EMULATOR_config[i1]["Induction_time"]
         EMULATOR_design[i1]["Inductor_conc"] = EMULATOR_config[i1]["Inductor_conc"]
 
-    with open("EMULATOR_state.json", "w") as outfile:
+    with open(first_state_output_file, "w") as outfile:
         json.dump(EMULATOR_state, outfile)
 
-    with open("EMULATOR_design.json", "w") as outfile:
+    with open(first_design_output_file, "w") as outfile:
         json.dump(EMULATOR_design, outfile)
 
     # %%  Write profiles to db_emulator

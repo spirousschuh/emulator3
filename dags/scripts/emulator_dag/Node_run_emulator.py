@@ -4,22 +4,26 @@ Emulator Run Node Module.
 Executes emulator simulation and sampling iterations.
 """
 
-import numpy as np
-import pandas as pd
 import json
 import time
 
-import method_emulator
+from dags.scripts.emulator_dag import method_emulator
+
 
 # %%
 
 
-def run_emu():
-    with open("EMULATOR_state.json") as json_file:
+def run_emu(
+        emulator_state_file="EMULATOR_state.json",
+        emulator_design_file="EMULATOR_design.json",
+        emulator_config_file="EMULATOR_config.json",
+        state_output_file="EMULATOR_state.json",
+):
+    with open(emulator_state_file) as json_file:
         EMULATOR_state = json.load(json_file)
-    with open("EMULATOR_design.json") as json_file:
+    with open(emulator_design_file) as json_file:
         EMULATOR_design = json.load(json_file)
-    with open("EMULATOR_config.json") as json_file:
+    with open(emulator_config_file) as json_file:
         EMULATOR_config = json.load(json_file)
 
     time_final_absolute = time.time()
@@ -77,5 +81,5 @@ def run_emu():
         EMULATOR_config,
     )
 
-    with open("EMULATOR_state.json", "w") as outfile:
+    with open(state_output_file, "w") as outfile:
         json.dump(NEW_EMULATOR_state, outfile)

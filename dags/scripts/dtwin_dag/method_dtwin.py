@@ -5,11 +5,9 @@ Core digital twin algorithms including state estimation and prediction.
 """
 
 # %% Import
-import time
 import numpy as np
 import pandas as pd
 
-import matplotlib.pyplot as plt
 from copy import deepcopy
 
 from scipy.integrate import solve_ivp

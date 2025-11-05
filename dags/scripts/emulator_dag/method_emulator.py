@@ -11,19 +11,12 @@ Main Functions:
 - write: Export measurements to database format
 """
 
-import time
-import numpy as np
-import pandas as pd
-
-import matplotlib.pyplot as plt
+import json
 from copy import deepcopy
 
-from scipy.integrate import solve_ivp
-from scipy.optimize import shgo, dual_annealing, minimize
-from scipy.optimize import approx_fprime
+import numpy as np
 
-import json
-from function_simulation import function_simulation
+from dags.scripts.emulator_dag.function_simulation import function_simulation
 
 
 def simulate(
