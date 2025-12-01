@@ -1,3 +1,11 @@
+"""
+Controller DAG Module.
+
+This module defines the Airflow DAG for the DOT (Dissolved Oxygen Tension)
+controller workflow. It manages periodic data queries, controller execution,
+and action persistence for bioreactor experiments (currently commented out).
+"""
+
 # import json
 # import datetime as dt
 # from docker.types import Mount
@@ -28,7 +36,7 @@
 
 #     # all units in minutes
 #     config = {
-#         "experiment_duration": 16 * 60,  
+#         "experiment_duration": 16 * 60,
 #         "time_start_checking_db": 60,
 #         "time_bw_check_db": 5,
 #         "runID": 623,
@@ -39,9 +47,9 @@
 #     #                                        BASE NODES DEFINITION
 #     # ------------------------------------------------------------------------------------------------------------
 
-#     def base_docker_node(task_id, command, retries=3, retry_delay=dt.timedelta(minutes=2), 
+#     def base_docker_node(task_id, command, retries=3, retry_delay=dt.timedelta(minutes=2),
 #                         execution_timeout=dt.timedelta(minutes=10), trigger_rule='all_success'):
-        
+
 #         return DockerOperator(
 #             task_id=task_id,
 #             image="emulator2",
@@ -55,9 +63,9 @@
 #             retries=retries,
 #             retry_delay=retry_delay,
 #             execution_timeout=execution_timeout,
-#             trigger_rule=trigger_rule 
-#         ) 
-    
+#             trigger_rule=trigger_rule
+#         )
+
 
 #     # ------------------------------------------------------------------------------------------------------------
 #     #                                     DOT CONTROLLER WORKFLOW
@@ -75,40 +83,40 @@
 #     # iterates every 10'
 #     for it10 in range(1, iterations + 1):
 
-#         # wait until next query 
+#         # wait until next query
 #         wait = TimeDeltaSensor(
-#             task_id=f"{config['time_bw_check_db'] * it10 + config['time_start_checking_db']}_min_wait", 
-#             poke_interval=30, 
-#             trigger_rule='all_done', 
+#             task_id=f"{config['time_bw_check_db'] * it10 + config['time_start_checking_db']}_min_wait",
+#             poke_interval=30,
+#             trigger_rule='all_done',
 #             delta=dt.timedelta(minutes=it10 * config['time_bw_check_db'] + config['time_start_checking_db'])
 #         )
-        
+
 #         with TaskGroup(group_id=f"controller_{it10}"):
-        
+
 #             # query data from database:
 #             get_measurements = base_docker_node(
 #                 task_id=f"get_measurements",
 #                 command=["python", "query_and_save.py", str(config["runID"]), f"db_output.json"]
 #             )
-                 
+
 #             # DOT controller
 #             DOT_controller = base_docker_node(
 #                 task_id=f"DOT_controller",
 #                 command=["python", "DOT_sensor.py"]
 #             )
-            
+
 #             # save actions in ilab db
 #             save_actions = base_docker_node(
 #                 task_id=f"save_actions",
 #                 command=["python", "save_actions.py", str(config["runID"]), "Feed.json", json.dumps(config["exp_ids"])]
 #             )
-        
+
 #             # set dependencies
 #             get_measurements >> DOT_controller >> save_actions
 
 
 #         # set dependencies
-#         last_node >> wait >> get_measurements           
+#         last_node >> wait >> get_measurements
 
 #         # save last node for next iteration
 #         last_node = wait

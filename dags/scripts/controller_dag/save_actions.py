@@ -1,16 +1,23 @@
+"""
+Action Persistence Module.
+
+Saves controller actions and feeding strategies to the database.
+"""
+
 import sys
 import pandas as pd
 import sqlalchemy
 import json
 
+
 def get_connection_url():
-    host = "mysql" #"host.docker.internal"
+    host = "mysql"  # "host.docker.internal"
     port = "3306"
     user = "dbuser"
     password = "dbpassword123"
     database = "ilabdb"
-    
-    return f'mysql+mysqlconnector://{user}:{password}@{host}:{port}/{database}'
+
+    return f"mysql+mysqlconnector://{user}:{password}@{host}:{port}/{database}"
 
 
 def run2ids(connection, runID):
@@ -24,16 +31,17 @@ def run2ids(connection, runID):
     runID: int
         Identification number for a experiment.
     """
-    query = sqlalchemy.text(f"SELECT profiles.profile_id, profiles.profile_name, experiments.experiment_id "
-                            f"FROM profiles "
-                            f"INNER JOIN experiments ON profiles.profile_id=experiments.profile_id "
-                            f"WHERE run_id = {runID};"
-                            )
+    query = sqlalchemy.text(
+        f"SELECT profiles.profile_id, profiles.profile_name, experiments.experiment_id "
+        f"FROM profiles "
+        f"INNER JOIN experiments ON profiles.profile_id=experiments.profile_id "
+        f"WHERE run_id = {runID};"
+    )
 
     return pd.read_sql(query, connection)
 
 
-def delete_setpoints(connection, runID, exp_id, from_time = 0, type_id = 99):
+def delete_setpoints(connection, runID, exp_id, from_time=0, type_id=99):
     """
     Deletes setpoints from a given runID and bioreactor, from a given time on.
 
@@ -53,18 +61,20 @@ def delete_setpoints(connection, runID, exp_id, from_time = 0, type_id = 99):
     """
     print(
         f"Attention! This will delete the setpoint data for run {runID} and bioreactor exp_id {exp_id} after experiment"
-        f"time {from_time}s. Press enter to continue and q to quit.")
+        f"time {from_time}s. Press enter to continue and q to quit."
+    )
 
     profiles = run2ids(connection, runID)
-    profile_id = profiles.loc[profiles['experiment_id'] == exp_id]['profile_id'].iloc[0]
-    query = f" DELETE FROM setpoints " \
-            f" WHERE profile_id = {profile_id} AND variable_type_id = {type_id} AND cultivation_age > {from_time}; "
-    
+    profile_id = profiles.loc[profiles["experiment_id"] == exp_id]["profile_id"].iloc[0]
+    query = (
+        f" DELETE FROM setpoints "
+        f" WHERE profile_id = {profile_id} AND variable_type_id = {type_id} AND cultivation_age > {from_time}; "
+    )
 
     connection.execute(sqlalchemy.text(query))
 
 
-def add_setpoints(connection, runID, exp_id, setpoint_df, type_id = 99):
+def add_setpoints(connection, runID, exp_id, setpoint_df, type_id=99):
     """
     Adds setpoints to a given experiment (runID) in a specific position (profile_name).
 
@@ -83,17 +93,19 @@ def add_setpoints(connection, runID, exp_id, setpoint_df, type_id = 99):
 
     """
     profiles = run2ids(connection, runID)
-    profile_id = profiles.loc[profiles['experiment_id'] == exp_id]['profile_id'].iloc[0]
-    setpoint_df.rename(columns={'measurement_time': 'cultivation_age'}, inplace=True)
-    setpoint_df['profile_id'] = profile_id
-    setpoint_df['variable_type_id'] = type_id
-    setpoint_df['scope'] = 'e'
-    setpoint_df['checksum'] = 1  # IDK what is this
-    setpoint_df.to_sql('setpoints', con=connection, if_exists='append', index=False, method="multi")
+    profile_id = profiles.loc[profiles["experiment_id"] == exp_id]["profile_id"].iloc[0]
+    setpoint_df.rename(columns={"measurement_time": "cultivation_age"}, inplace=True)
+    setpoint_df["profile_id"] = profile_id
+    setpoint_df["variable_type_id"] = type_id
+    setpoint_df["scope"] = "e"
+    setpoint_df["checksum"] = 1  # IDK what is this
+    setpoint_df.to_sql(
+        "setpoints", con=connection, if_exists="append", index=False, method="multi"
+    )
 
 
 # %%
-if __name__ == '__main__':
+if __name__ == "__main__":
 
     runID = int(sys.argv[1])
     file_path = sys.argv[2]
